@@ -8,15 +8,15 @@ import base64
 import os
 import re
 import sys
-from dataclasses import dataclass, field
+from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import aiohttp
 import yaml
 from packaging.version import Version
 
-REPO_ROOT = Path(os.environ.get("GITHUB_WORKSPACE", ".")).resolve()
+REPO_ROOT = Path(".").resolve()
 VERSIONS_FILE = REPO_ROOT / os.environ.get("VERSIONS_FILE", "versions.tf")
 
 IGNORE = {s.strip() for s in os.environ.get("IGNORE", "").split(",") if s.strip()}
@@ -63,7 +63,7 @@ def is_version_tag(tag: str) -> bool:
 # ── Constraint logic ──────────────────────────────────────────────────────────
 
 
-def new_constraint(current: str, latest: str) -> tuple[Optional[str], bool]:
+def new_constraint(current: str, latest: str) -> tuple[str | None, bool]:
     """
     Returns (new_constraint_string | None, needs_manual_review).
 
@@ -88,7 +88,7 @@ def new_constraint(current: str, latest: str) -> tuple[Optional[str], bool]:
 
         cur_minor = int(parts[1])
         if latest_v.minor > cur_minor:
-            return f"~> {latest_v.major}.{latest_v.minor}.0", False
+            return f"~> {latest_v.major}.{latest_v.minor}.{latest_v.micro}", False
         if latest_v.micro > int(parts[2]):
             return f"~> {latest_v.major}.{latest_v.minor}.{latest_v.micro}", False
         return None, False
@@ -109,7 +109,7 @@ class Provider:
     name: str
     source: str
     version: str
-    new_version: Optional[str] = None
+    new_version: str | None = None
     manual: bool = False
 
 
@@ -120,28 +120,28 @@ class HelmRelease:
     repository: str
     chart: str
     version: str
-    latest: Optional[str] = None
+    latest: str | None = None
 
 
 @dataclass
 class Module:
     name: str
     file: Path
-    source: str          # e.g. "namespace/name/provider"
-    registry: str        # "opentofu" or "terraform"
+    source: str  # e.g. "namespace/name/provider"
+    registry: str  # "opentofu" or "terraform"
     version: str
-    latest: Optional[str] = None
+    latest: str | None = None
 
 
 @dataclass
 class ImageRef:
     file: Path
-    original: str        # full original string, e.g. "cloudflare/cloudflared:2026.6.1"
-    registry: str        # "dockerhub" | "ghcr" | "quay" | "unknown"
+    original: str  # full original string, e.g. "cloudflare/cloudflared:2026.6.1"
+    registry: str  # "dockerhub" | "ghcr" | "quay" | "unknown"
     namespace: str
     name: str
     tag: str
-    latest_tag: Optional[str] = None
+    latest_tag: str | None = None
 
     @property
     def full(self) -> str:
@@ -226,22 +226,27 @@ def parse_modules(tf_files: list[Path]) -> list[Module]:
             registry = "opentofu"
             clean = source
             if source.startswith("registry.opentofu.org/"):
-                clean = source[len("registry.opentofu.org/"):]
+                clean = source[len("registry.opentofu.org/") :]
             elif source.startswith("registry.terraform.io/"):
-                clean = source[len("registry.terraform.io/"):]
+                clean = source[len("registry.terraform.io/") :]
                 registry = "terraform"
             # Must be namespace/name/provider
             if clean.count("/") != 2:
                 continue
             if clean not in IGNORE and m.group(1) not in IGNORE:
-                modules.append(Module(
-                    name=m.group(1), file=path, source=clean,
-                    registry=registry, version=version,
-                ))
+                modules.append(
+                    Module(
+                        name=m.group(1),
+                        file=path,
+                        source=clean,
+                        registry=registry,
+                        version=version,
+                    )
+                )
     return modules
 
 
-def _parse_image_ref(image_str: str, path: Path) -> Optional[ImageRef]:
+def _parse_image_ref(image_str: str, path: Path) -> ImageRef | None:
     """Parse 'registry/ns/name:tag' or 'ns/name:tag' or 'name:tag' into an ImageRef."""
     if ":" not in image_str:
         return None
@@ -252,22 +257,31 @@ def _parse_image_ref(image_str: str, path: Path) -> Optional[ImageRef]:
     parts = ref.split("/")
     if parts[0] in ("ghcr.io",):
         return ImageRef(
-            file=path, original=image_str, registry="ghcr",
-            namespace="/".join(parts[1:-1]), name=parts[-1], tag=tag,
+            file=path,
+            original=image_str,
+            registry="ghcr",
+            namespace="/".join(parts[1:-1]),
+            name=parts[-1],
+            tag=tag,
         )
     if parts[0] == "quay.io":
         return ImageRef(
-            file=path, original=image_str, registry="quay",
-            namespace="/".join(parts[1:-1]), name=parts[-1], tag=tag,
+            file=path,
+            original=image_str,
+            registry="quay",
+            namespace="/".join(parts[1:-1]),
+            name=parts[-1],
+            tag=tag,
         )
     if "." in parts[0] or ":" in parts[0]:
         # Unknown registry (gcr.io, ECR, etc.)
         return None
-    # Docker Hub
-    namespace = parts[0] if len(parts) > 1 else "library"
+    # Docker Hub — keep namespace empty for single-part images so updated preserves original format
+    namespace = parts[0] if len(parts) > 1 else ""
     name = parts[-1]
-    return ImageRef(file=path, original=image_str, registry="dockerhub",
-                    namespace=namespace, name=name, tag=tag)
+    return ImageRef(
+        file=path, original=image_str, registry="dockerhub", namespace=namespace, name=name, tag=tag
+    )
 
 
 def parse_images(tf_files: list[Path]) -> list[ImageRef]:
@@ -292,11 +306,11 @@ def parse_images(tf_files: list[Path]) -> list[ImageRef]:
 # ── Registry fetchers ─────────────────────────────────────────────────────────
 
 
-async def fetch_latest_provider(session: aiohttp.ClientSession, source: str) -> Optional[str]:
+async def fetch_latest_provider(session: aiohttp.ClientSession, source: str) -> str | None:
     url = f"https://registry.opentofu.org/v1/providers/{source}/versions"
     try:
         async with session.get(url, timeout=TIMEOUT) as r:
-            data = await r.json()
+            data = await r.json(content_type=None)
         versions = [v["version"] for v in data.get("versions", []) if is_stable(v["version"])]
         return str(max(versions, key=norm)) if versions else None
     except Exception as e:
@@ -304,7 +318,7 @@ async def fetch_latest_provider(session: aiohttp.ClientSession, source: str) -> 
         return None
 
 
-async def fetch_latest_chart(session: aiohttp.ClientSession, repo: str, chart: str) -> Optional[str]:
+async def fetch_latest_chart(session: aiohttp.ClientSession, repo: str, chart: str) -> str | None:
     url = f"{repo.rstrip('/')}/index.yaml"
     try:
         async with session.get(url, timeout=TIMEOUT) as r:
@@ -317,12 +331,18 @@ async def fetch_latest_chart(session: aiohttp.ClientSession, repo: str, chart: s
         return None
 
 
-async def fetch_latest_module(session: aiohttp.ClientSession, source: str, registry: str) -> Optional[str]:
-    base = "https://registry.opentofu.org" if registry == "opentofu" else "https://registry.terraform.io"
+async def fetch_latest_module(
+    session: aiohttp.ClientSession, source: str, registry: str
+) -> str | None:
+    base = (
+        "https://registry.opentofu.org"
+        if registry == "opentofu"
+        else "https://registry.terraform.io"
+    )
     url = f"{base}/v1/modules/{source}/versions"
     try:
         async with session.get(url, timeout=TIMEOUT) as r:
-            data = await r.json()
+            data = await r.json(content_type=None)
         versions = [
             v["version"]
             for mod in data.get("modules", [])
@@ -343,7 +363,7 @@ async def _dockerhub_token(session: aiohttp.ClientSession, namespace: str, name:
         creds = base64.b64encode(f"{DOCKERHUB_USERNAME}:{DOCKERHUB_TOKEN}".encode()).decode()
         headers["Authorization"] = f"Basic {creds}"
     async with session.get(url, headers=headers, timeout=TIMEOUT) as r:
-        return (await r.json()).get("token", "")
+        return (await r.json(content_type=None)).get("token", "")
 
 
 async def _ghcr_token(session: aiohttp.ClientSession, namespace: str, name: str) -> str:
@@ -353,10 +373,12 @@ async def _ghcr_token(session: aiohttp.ClientSession, namespace: str, name: str)
     url = f"https://ghcr.io/token?scope={scope}"
     creds = base64.b64encode(f"token:{GHCR_TOKEN}".encode()).decode()
     async with session.get(url, headers={"Authorization": f"Basic {creds}"}, timeout=TIMEOUT) as r:
-        return (await r.json()).get("token", "")
+        return (await r.json(content_type=None)).get("token", "")
 
 
-async def _list_tags_oci(session: aiohttp.ClientSession, registry_host: str, repo: str, token: str) -> list[str]:
+async def _list_tags_oci(
+    session: aiohttp.ClientSession, registry_host: str, repo: str, token: str
+) -> list[str]:
     url = f"https://{registry_host}/v2/{repo}/tags/list"
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     tags: list[str] = []
@@ -364,7 +386,7 @@ async def _list_tags_oci(session: aiohttp.ClientSession, registry_host: str, rep
         async with session.get(url, headers=headers, timeout=TIMEOUT) as r:
             if r.status != 200:
                 break
-            data = await r.json()
+            data = await r.json(content_type=None)
             tags.extend(data.get("tags") or [])
             link = r.headers.get("Link", "")
             next_url = re.search(r'<([^>]+)>;\s*rel="next"', link)
@@ -372,7 +394,7 @@ async def _list_tags_oci(session: aiohttp.ClientSession, registry_host: str, rep
     return tags
 
 
-async def fetch_latest_image(session: aiohttp.ClientSession, ref: ImageRef) -> Optional[str]:
+async def fetch_latest_image(session: aiohttp.ClientSession, ref: ImageRef) -> str | None:
     try:
         if ref.registry == "dockerhub":
             ns = ref.namespace or "library"
@@ -419,11 +441,18 @@ def apply_provider_update(content: str, source: str, new_ver: str) -> str:
 
 
 def apply_chart_update(content: str, chart: str, old_ver: str, new_ver: str) -> str:
-    pattern = re.compile(
-        r'(chart\s*=\s*"' + re.escape(chart) + r'"[^}]*?version\s*=\s*)"' + re.escape(old_ver) + r'"',
-        re.DOTALL,
-    )
-    return pattern.sub(r'\g<1>"' + new_ver + '"', content)
+    header = re.compile(r'resource\s+"helm_release"\s+"\w+"\s*\{')
+    chart_re = re.compile(r'chart\s*=\s*"' + re.escape(chart) + r'"')
+    ver_re = re.compile(r'(version\s*=\s*)"' + re.escape(old_ver) + r'"')
+    for m in header.finditer(content):
+        start = m.end()
+        block = _extract_block(content, start)
+        if not chart_re.search(block):
+            continue
+        new_block = ver_re.sub(r'\g<1>"' + new_ver + '"', block)
+        if new_block != block:
+            return content[:start] + new_block + content[start + len(block) :]
+    return content
 
 
 def apply_module_update(content: str, source: str, old_ver: str, new_ver: str) -> str:
@@ -452,7 +481,7 @@ def apply_image_update(content: str, old_ref: str, new_ref: str) -> str:
 
 
 async def main() -> None:
-    tf_files = [f for f in REPO_ROOT.glob("*.tf")]
+    tf_files = list(REPO_ROOT.rglob("*.tf"))
     non_versions_files = [f for f in tf_files if f.resolve() != VERSIONS_FILE.resolve()]
 
     providers: list[Provider] = []
@@ -486,7 +515,9 @@ async def main() -> None:
             continue
         new_ver, needs_manual = new_constraint(p.version, latest)
         if needs_manual:
-            manual_items.append(f"- `{p.name}` (`{p.source}`): `{p.version}` → `{latest}` (major bump)")
+            manual_items.append(
+                f"- `{p.name}` (`{p.source}`): `{p.version}` → `{latest}` (major bump)"
+            )
         elif new_ver:
             p.new_version = new_ver
 
@@ -505,7 +536,9 @@ async def main() -> None:
         try:
             new_ver, needs_manual = new_constraint(m.version, latest)
             if needs_manual:
-                manual_items.append(f"- module `{m.name}` (`{m.source}`): `{m.version}` → `{latest}` (major bump)")
+                manual_items.append(
+                    f"- module `{m.name}` (`{m.source}`): `{m.version}` → `{latest}` (major bump)"
+                )
             elif new_ver:
                 m.latest = new_ver
         except Exception:
@@ -539,8 +572,6 @@ async def main() -> None:
             if updated != content:
                 u.file.write_text(updated)
 
-        # Group image updates by file to avoid re-reading
-        from collections import defaultdict
         by_file: dict[Path, list[ImageRef]] = defaultdict(list)
         for img in image_updates:
             by_file[img.file].append(img)
@@ -594,10 +625,13 @@ async def main() -> None:
         print("\n(dry-run: no files were modified)", file=sys.stderr)
 
     has_changes = bool(provider_updates or chart_updates or module_updates or image_updates)
+
+    # Write report to file; action.yml captures it to avoid GITHUB_OUTPUT multiline issues
+    Path(".update-report.txt").write_text(report)
+
     if gh_out := os.environ.get("GITHUB_OUTPUT"):
         with open(gh_out, "a") as f:
             f.write(f"changes={'true' if has_changes else 'false'}\n")
-            f.write(f"report<<EOF\n{report}\nEOF\n")
 
 
 if __name__ == "__main__":

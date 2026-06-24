@@ -1,10 +1,5 @@
 """Tests for HCL parsing functions."""
-import sys
-from pathlib import Path
-
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parent.parent / ".github" / "scripts"))
 
 from update_versions import (
     parse_providers,
@@ -228,6 +223,11 @@ class TestNewConstraint:
     def test_pessimistic_patch_minor_bump(self):
         ver, manual = new_constraint("~> 1.17.4", "1.18.0")
         assert ver == "~> 1.18.0"
+        assert not manual
+
+    def test_pessimistic_patch_minor_bump_nonzero_micro(self):
+        ver, manual = new_constraint("~> 1.17.4", "1.18.1")
+        assert ver == "~> 1.18.1"
         assert not manual
 
 

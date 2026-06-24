@@ -42,5 +42,6 @@ jobs:
           dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
 
           # Telegram notification when a PR is opened
-          telegram-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          notification-method: telegram
+          telegram-bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           telegram-chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}

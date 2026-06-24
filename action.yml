@@ -1,5 +1,7 @@
 name: 'OpenTofu Updater'
 description: 'Keep OpenTofu/Terraform providers, Helm charts, modules, and container images up to date via automated PRs'
+author: 'drumandbytes'
+
 branding:
   icon: 'refresh-cw'
   color: 'purple'
@@ -7,83 +9,124 @@ branding:
 inputs:
   working-directory:
     description: 'Directory containing .tf files to scan'
+    required: false
     default: '.'
   versions-file:
     description: 'File containing required_providers block, relative to working-directory'
+    required: false
     default: 'versions.tf'
   ignore:
     description: 'Comma-separated list of providers/charts/modules/images to skip (by name or source)'
+    required: false
     default: ''
   skip-providers:
     description: 'Skip provider version checks'
+    required: false
     default: 'false'
   skip-helm:
     description: 'Skip Helm chart version checks'
+    required: false
     default: 'false'
   skip-modules:
     description: 'Skip module version checks'
+    required: false
     default: 'false'
   skip-images:
     description: 'Skip container image version checks'
+    required: false
     default: 'false'
   create-pr:
     description: 'Open a pull request when updates are found'
+    required: false
     default: 'true'
   pr-title:
     description: 'Title for the pull request'
+    required: false
     default: 'chore: update OpenTofu versions'
   pr-branch:
     description: 'Branch name for the pull request'
+    required: false
     default: 'chore/opentofu-updater'
   pr-base:
     description: 'Base branch for the pull request'
+    required: false
     default: 'main'
   commit-message:
     description: 'Commit message for version bumps'
+    required: false
     default: 'chore: update OpenTofu versions'
   dry-run:
     description: 'Report changes without writing files or opening PRs'
+    required: false
     default: 'false'
+  python-version:
+    description: 'Python version to use'
+    required: false
+    default: '3.12'
+  notification-method:
+    description: 'Notification method: telegram, slack, discord, microsoft-teams, or none'
+    required: false
+    default: 'none'
+  telegram-bot-token:
+    description: 'Telegram bot token (required when notification-method is telegram)'
+    required: false
+    default: ''
+  telegram-chat-id:
+    description: 'Telegram chat ID (required when notification-method is telegram)'
+    required: false
+    default: ''
+  slack-webhook-url:
+    description: 'Slack webhook URL (required when notification-method is slack)'
+    required: false
+    default: ''
+  discord-webhook-url:
+    description: 'Discord webhook URL (required when notification-method is discord)'
+    required: false
+    default: ''
+  teams-webhook-url:
+    description: 'Microsoft Teams webhook URL (required when notification-method is microsoft-teams)'
+    required: false
+    default: ''
   github-token:
-    description: 'GitHub token used for creating pull requests'
+    description: 'GitHub token for creating PRs and GHCR image lookups'
+    required: false
     default: ${{ github.token }}
   dockerhub-username:
     description: 'Docker Hub username (raises rate limits for image lookups)'
+    required: false
     default: ''
   dockerhub-token:
     description: 'Docker Hub access token'
-    default: ''
-  ghcr-token:
-    description: 'GitHub token for GHCR image lookups (defaults to github-token)'
-    default: ''
-  telegram-token:
-    description: 'Telegram bot token for update notifications'
-    default: ''
-  telegram-chat-id:
-    description: 'Telegram chat ID for update notifications'
+    required: false
     default: ''
 
 outputs:
-  changes:
+  changes-detected:
     description: 'Whether any updates were found (true/false)'
-    value: ${{ steps.update.outputs.changes }}
-  report:
+    value: ${{ steps.check-changes.outputs.changes }}
+  update-report:
     description: 'Markdown report of all changes'
-    value: ${{ steps.update.outputs.report }}
+    value: ${{ steps.report.outputs.report }}
+  pr-number:
+    description: 'Pull request number (if created)'
+    value: ${{ steps.create-pr.outputs.pull-request-number }}
+  pr-url:
+    description: 'Pull request URL (if created)'
+    value: ${{ steps.create-pr.outputs.pull-request-url }}
 
 runs:
   using: 'composite'
   steps:
-    - uses: actions/setup-python@v5
+    - name: Setup Python
+      uses: actions/setup-python@v6
       with:
-        python-version: '3.12'
+        python-version: ${{ inputs.python-version }}
 
     - name: Install dependencies
       shell: bash
-      run: pip install aiohttp pyyaml packaging
+      run: pip install 'aiohttp>=3.9.0' 'pyyaml>=6.0' 'packaging>=23.0'
 
     - name: Update versions
-      id: update
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
@@ -96,27 +139,265 @@ runs:
         DRY_RUN: ${{ inputs.dry-run }}
         DOCKERHUB_USERNAME: ${{ inputs.dockerhub-username }}
         DOCKERHUB_TOKEN: ${{ inputs.dockerhub-token }}
-        GHCR_TOKEN: ${{ inputs.ghcr-token || inputs.github-token }}
-      run: python ${{ github.action_path }}/.github/scripts/update_versions.py
+        GHCR_TOKEN: ${{ inputs.github-token }}
+      run: |
+        if [ "$DRY_RUN" = "true" ]; then
+          python "${{ github.action_path }}/.github/scripts/update_versions.py" --dry-run
+        else
+          python "${{ github.action_path }}/.github/scripts/update_versions.py"
+        fi
+
+    - name: Check for changes
+      id: check-changes
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        if git diff --quiet -- . ':(exclude).update-report.txt'; then
+          echo "changes=false" >> "$GITHUB_OUTPUT"
+          echo "No version changes detected"
+        else
+          echo "changes=true" >> "$GITHUB_OUTPUT"
+          echo "Version changes detected"
+        fi
+
+    - name: Capture update report
+      id: report
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        if [ -f ".update-report.txt" ]; then
+          {
+            echo 'report<<EOF'
+            cat .update-report.txt
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+        else
+          echo "report=(No updates found.)" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Clean up temporary files
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: rm -f .update-report.txt
 
     - name: Create pull request
-      if: inputs.create-pr == 'true' && inputs.dry-run == 'false' && steps.update.outputs.changes == 'true'
-      uses: peter-evans/create-pull-request@v7
+      id: create-pr
+      if: inputs.create-pr == 'true' && inputs.dry-run == 'false' && steps.check-changes.outputs.changes == 'true'
+      uses: peter-evans/create-pull-request@v8
       with:
         token: ${{ inputs.github-token }}
         commit-message: ${{ inputs.commit-message }}
         title: ${{ inputs.pr-title }}
-        body: ${{ steps.update.outputs.report }}
+        body: |
+          Automated update of OpenTofu provider, Helm chart, module, and container image versions.
+
+          ```
+          ${{ steps.report.outputs.report }}
+          ```
+
+          > **Note:** If provider versions changed, run `tofu init -upgrade` after merging to regenerate the lock file.
+
+          ---
+          *This PR was automatically created by the [OpenTofu Updater](https://github.com/drumandbytes/opentofu-updater-action) action.*
         branch: ${{ inputs.pr-branch }}
         base: ${{ inputs.pr-base }}
         delete-branch: true
 
     - name: Send Telegram notification
-      if: inputs.telegram-token != '' && steps.update.outputs.changes == 'true'
+      if: inputs.telegram-bot-token != '' && inputs.telegram-chat-id != '' && steps.check-changes.outputs.changes == 'true'
       shell: bash
       env:
-        TELEGRAM_TOKEN: ${{ inputs.telegram-token }}
+        TELEGRAM_BOT_TOKEN: ${{ inputs.telegram-bot-token }}
         TELEGRAM_CHAT_ID: ${{ inputs.telegram-chat-id }}
-        REPORT: ${{ steps.update.outputs.report }}
-        REPO: ${{ github.repository }}
-      run: python ${{ github.action_path }}/.github/scripts/notify.py
+        PR_URL: ${{ steps.create-pr.outputs.pull-request-url }}
+        PR_NUMBER: ${{ steps.create-pr.outputs.pull-request-number }}
+        PR_OPERATION: ${{ steps.create-pr.outputs.pull-request-operation }}
+        PR_TITLE: ${{ inputs.pr-title }}
+        RAW_REPORT: ${{ steps.report.outputs.report }}
+      run: |
+        set -euo pipefail
+
+        PR_TITLE_ESC=$(python3 -c "import html,os; print(html.escape(os.environ['PR_TITLE']))")
+        PR_URL_ESC=$(python3 -c "import html,os; print(html.escape(os.environ.get('PR_URL','')))")
+        REPORT_ESC=$(python3 -c "import html,os; print(html.escape(os.environ['RAW_REPORT']))")
+
+        if [ -n "$PR_URL" ]; then
+          TEXT="<b>📦 OpenTofu Updater</b>
+
+        <b>🔌 PR</b>
+        <a href=\"${PR_URL_ESC}\">${PR_URL_ESC}</a>
+
+        <b>⚙️ Operation</b>
+        ${PR_OPERATION}
+
+        <b>📝 Title</b>
+        ${PR_TITLE_ESC}
+
+        <b>📋 Update summary</b>
+        <pre>${REPORT_ESC}</pre>"
+        else
+          TEXT="<b>📦 OpenTofu Updater</b>
+
+        <b>📝 Title</b>
+        ${PR_TITLE_ESC}
+
+        <b>📋 Update summary</b>
+        <pre>${REPORT_ESC}</pre>"
+        fi
+
+        curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+          -d chat_id="${TELEGRAM_CHAT_ID}" \
+          -d parse_mode=HTML \
+          --data-urlencode text="${TEXT}" || echo "Failed to send Telegram notification"
+
+    - name: Send Slack notification
+      if: inputs.slack-webhook-url != '' && steps.check-changes.outputs.changes == 'true'
+      shell: bash
+      env:
+        SLACK_WEBHOOK_URL: ${{ inputs.slack-webhook-url }}
+        PR_URL: ${{ steps.create-pr.outputs.pull-request-url }}
+        PR_NUMBER: ${{ steps.create-pr.outputs.pull-request-number }}
+        PR_OPERATION: ${{ steps.create-pr.outputs.pull-request-operation }}
+        PR_TITLE: ${{ inputs.pr-title }}
+        RAW_REPORT: ${{ steps.report.outputs.report }}
+      run: |
+        set -euo pipefail
+
+        PAYLOAD=$(python3 << 'PYTHON'
+        import json, os
+
+        pr_url = os.environ.get("PR_URL", "")
+        pr_number = os.environ.get("PR_NUMBER", "")
+        pr_operation = os.environ.get("PR_OPERATION", "")
+        pr_title = os.environ.get("PR_TITLE", "")
+        report = os.environ.get("RAW_REPORT", "")
+
+        blocks = [{"type": "header", "text": {"type": "plain_text", "text": "📦 OpenTofu Updater"}}]
+
+        if pr_url:
+            blocks.append({
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*🔌 PR:*\n<{pr_url}|#{pr_number}>"},
+                    {"type": "mrkdwn", "text": f"*⚙️ Operation:*\n{pr_operation}"},
+                ],
+            })
+
+        blocks.extend([
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"*📝 Title:*\n{pr_title}"}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"*📋 Update Summary:*\n```{report}```"}},
+        ])
+
+        print(json.dumps({"text": "📦 OpenTofu Updater", "blocks": blocks}))
+        PYTHON
+        )
+
+        curl -fsS -X POST "${SLACK_WEBHOOK_URL}" \
+          -H 'Content-Type: application/json' \
+          -d "${PAYLOAD}" || echo "Failed to send Slack notification"
+
+    - name: Send Discord notification
+      if: inputs.discord-webhook-url != '' && steps.check-changes.outputs.changes == 'true'
+      shell: bash
+      env:
+        DISCORD_WEBHOOK_URL: ${{ inputs.discord-webhook-url }}
+        PR_URL: ${{ steps.create-pr.outputs.pull-request-url }}
+        PR_NUMBER: ${{ steps.create-pr.outputs.pull-request-number }}
+        PR_OPERATION: ${{ steps.create-pr.outputs.pull-request-operation }}
+        PR_TITLE: ${{ inputs.pr-title }}
+        RAW_REPORT: ${{ steps.report.outputs.report }}
+      run: |
+        set -euo pipefail
+
+        PAYLOAD=$(python3 << 'PYTHON'
+        import json, os
+
+        pr_url = os.environ.get("PR_URL", "")
+        pr_number = os.environ.get("PR_NUMBER", "")
+        pr_operation = os.environ.get("PR_OPERATION", "")
+        pr_title = os.environ.get("PR_TITLE", "")
+        report = os.environ.get("RAW_REPORT", "")
+
+        def truncate(s, n=3900):
+            return s[:n] + "..." if len(s) > n else s
+
+        fields = []
+        if pr_url:
+            fields.extend([
+                {"name": "🔌 PR", "value": f"[#{pr_number}]({pr_url})", "inline": True},
+                {"name": "⚙️ Operation", "value": pr_operation, "inline": True},
+            ])
+
+        fields.append({"name": "📝 Title", "value": truncate(pr_title, 1000)})
+
+        payload = {
+            "content": "📦 **OpenTofu Updater**",
+            "embeds": [{
+                "description": f"**📋 Update Summary:**\n```\n{truncate(report)}\n```",
+                "color": 6570404,
+                "fields": fields,
+            }],
+        }
+        print(json.dumps(payload))
+        PYTHON
+        )
+
+        curl -fsS -X POST "${DISCORD_WEBHOOK_URL}" \
+          -H 'Content-Type: application/json' \
+          -d "${PAYLOAD}" || echo "Failed to send Discord notification"
+
+    - name: Send Microsoft Teams notification
+      if: inputs.teams-webhook-url != '' && steps.check-changes.outputs.changes == 'true'
+      shell: bash
+      env:
+        TEAMS_WEBHOOK_URL: ${{ inputs.teams-webhook-url }}
+        PR_URL: ${{ steps.create-pr.outputs.pull-request-url }}
+        PR_NUMBER: ${{ steps.create-pr.outputs.pull-request-number }}
+        PR_OPERATION: ${{ steps.create-pr.outputs.pull-request-operation }}
+        PR_TITLE: ${{ inputs.pr-title }}
+        RAW_REPORT: ${{ steps.report.outputs.report }}
+      run: |
+        set -euo pipefail
+
+        PAYLOAD=$(python3 << 'PYTHON'
+        import json, os
+
+        pr_url = os.environ.get("PR_URL", "")
+        pr_number = os.environ.get("PR_NUMBER", "")
+        pr_operation = os.environ.get("PR_OPERATION", "")
+        pr_title = os.environ.get("PR_TITLE", "")
+        report = os.environ.get("RAW_REPORT", "")
+
+        section = {
+            "activityTitle": pr_title,
+            "text": f"**📋 Update Summary:**\n\n```\n{report}\n```",
+        }
+        if pr_url:
+            section["facts"] = [
+                {"name": "🔌 Pull Request:", "value": f"#{pr_number}"},
+                {"name": "⚙️ Operation:", "value": pr_operation},
+            ]
+
+        payload = {
+            "@type": "MessageCard",
+            "@context": "https://schema.org/extensions",
+            "summary": "📦 OpenTofu Updater",
+            "themeColor": "6570404",
+            "title": "📦 OpenTofu Updater",
+            "sections": [section],
+        }
+
+        if pr_url:
+            payload["potentialAction"] = [{
+                "@type": "OpenUri",
+                "name": "View Pull Request",
+                "targets": [{"os": "default", "uri": pr_url}],
+            }]
+
+        print(json.dumps(payload))
+        PYTHON
+        )
+
+        curl -fsS -X POST "${TEAMS_WEBHOOK_URL}" \
+          -H 'Content-Type: application/json' \
+          -d "${PAYLOAD}" || echo "Failed to send Microsoft Teams notification"

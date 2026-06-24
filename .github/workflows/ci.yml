@@ -4,25 +4,62 @@ on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
   lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install ruff
-      - run: ruff check .
-      - run: ruff format --check .
+
+      - name: Install dependencies
+        run: pip install ruff
+
+      - name: Run Ruff linter
+        run: ruff check .github/scripts/
+
+      - name: Run Ruff formatter check
+        run: ruff format --check .github/scripts/
 
   test:
+    name: Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install pytest pytest-asyncio aiohttp pyyaml packaging aioresponses
-      - run: pytest tests/ -v
+
+      - name: Install dependencies
+        run: pip install pytest pytest-asyncio 'aiohttp>=3.9.0,<3.12' pyyaml packaging aioresponses
+
+      - name: Run tests
+        run: pytest tests/ -v
+
+  validate-action:
+    name: Validate Action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate action.yml syntax
+        run: |
+          python -c "import yaml; yaml.safe_load(open('action.yml'))"
+          echo "action.yml is valid YAML"
+
+      - name: Check required files exist
+        run: |
+          test -f action.yml
+          test -f .github/scripts/update_versions.py
+          echo "All required files exist"
