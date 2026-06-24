@@ -1,0 +1,122 @@
+name: 'OpenTofu Updater'
+description: 'Keep OpenTofu/Terraform providers, Helm charts, modules, and container images up to date via automated PRs'
+branding:
+  icon: 'refresh-cw'
+  color: 'purple'
+
+inputs:
+  working-directory:
+    description: 'Directory containing .tf files to scan'
+    default: '.'
+  versions-file:
+    description: 'File containing required_providers block, relative to working-directory'
+    default: 'versions.tf'
+  ignore:
+    description: 'Comma-separated list of providers/charts/modules/images to skip (by name or source)'
+    default: ''
+  skip-providers:
+    description: 'Skip provider version checks'
+    default: 'false'
+  skip-helm:
+    description: 'Skip Helm chart version checks'
+    default: 'false'
+  skip-modules:
+    description: 'Skip module version checks'
+    default: 'false'
+  skip-images:
+    description: 'Skip container image version checks'
+    default: 'false'
+  create-pr:
+    description: 'Open a pull request when updates are found'
+    default: 'true'
+  pr-title:
+    description: 'Title for the pull request'
+    default: 'chore: update OpenTofu versions'
+  pr-branch:
+    description: 'Branch name for the pull request'
+    default: 'chore/opentofu-updater'
+  pr-base:
+    description: 'Base branch for the pull request'
+    default: 'main'
+  commit-message:
+    description: 'Commit message for version bumps'
+    default: 'chore: update OpenTofu versions'
+  dry-run:
+    description: 'Report changes without writing files or opening PRs'
+    default: 'false'
+  github-token:
+    description: 'GitHub token used for creating pull requests'
+    default: ${{ github.token }}
+  dockerhub-username:
+    description: 'Docker Hub username (raises rate limits for image lookups)'
+    default: ''
+  dockerhub-token:
+    description: 'Docker Hub access token'
+    default: ''
+  ghcr-token:
+    description: 'GitHub token for GHCR image lookups (defaults to github-token)'
+    default: ''
+  telegram-token:
+    description: 'Telegram bot token for update notifications'
+    default: ''
+  telegram-chat-id:
+    description: 'Telegram chat ID for update notifications'
+    default: ''
+
+outputs:
+  changes:
+    description: 'Whether any updates were found (true/false)'
+    value: ${{ steps.update.outputs.changes }}
+  report:
+    description: 'Markdown report of all changes'
+    value: ${{ steps.update.outputs.report }}
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      shell: bash
+      run: pip install aiohttp pyyaml packaging
+
+    - name: Update versions
+      id: update
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        VERSIONS_FILE: ${{ inputs.versions-file }}
+        IGNORE: ${{ inputs.ignore }}
+        SKIP_PROVIDERS: ${{ inputs.skip-providers }}
+        SKIP_HELM: ${{ inputs.skip-helm }}
+        SKIP_MODULES: ${{ inputs.skip-modules }}
+        SKIP_IMAGES: ${{ inputs.skip-images }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        DOCKERHUB_USERNAME: ${{ inputs.dockerhub-username }}
+        DOCKERHUB_TOKEN: ${{ inputs.dockerhub-token }}
+        GHCR_TOKEN: ${{ inputs.ghcr-token || inputs.github-token }}
+      run: python ${{ github.action_path }}/.github/scripts/update_versions.py
+
+    - name: Create pull request
+      if: inputs.create-pr == 'true' && inputs.dry-run == 'false' && steps.update.outputs.changes == 'true'
+      uses: peter-evans/create-pull-request@v7
+      with:
+        token: ${{ inputs.github-token }}
+        commit-message: ${{ inputs.commit-message }}
+        title: ${{ inputs.pr-title }}
+        body: ${{ steps.update.outputs.report }}
+        branch: ${{ inputs.pr-branch }}
+        base: ${{ inputs.pr-base }}
+        delete-branch: true
+
+    - name: Send Telegram notification
+      if: inputs.telegram-token != '' && steps.update.outputs.changes == 'true'
+      shell: bash
+      env:
+        TELEGRAM_TOKEN: ${{ inputs.telegram-token }}
+        TELEGRAM_CHAT_ID: ${{ inputs.telegram-chat-id }}
+        REPORT: ${{ steps.update.outputs.report }}
+        REPO: ${{ github.repository }}
+      run: python ${{ github.action_path }}/.github/scripts/notify.py

@@ -1,0 +1,46 @@
+name: Update OpenTofu versions
+
+on:
+  schedule:
+    - cron: '0 4 * * 1'  # Monday 04:00 UTC
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: drumandbytes/opentofu-updater-action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+          # Scan a subdirectory instead of the repo root
+          working-directory: infra/
+
+          # Providers are declared in a non-default file
+          versions-file: providers.tf
+
+          # Skip specific providers or charts by name/source
+          ignore: 'hashicorp/random,kube-prometheus-stack'
+
+          # Disable categories you don't need
+          skip-images: 'true'
+
+          # PR configuration
+          pr-title: 'chore(infra): bump OpenTofu versions'
+          pr-branch: 'chore/opentofu-versions'
+          pr-base: 'main'
+          commit-message: 'chore(infra): bump OpenTofu versions'
+
+          # Docker Hub credentials to avoid rate limits on image lookups
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+          # Telegram notification when a PR is opened
+          telegram-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          telegram-chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}

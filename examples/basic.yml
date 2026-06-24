@@ -1,0 +1,20 @@
+name: Update OpenTofu versions
+
+on:
+  schedule:
+    - cron: '0 4 * * 1'  # Monday 04:00 UTC
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: drumandbytes/opentofu-updater-action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
