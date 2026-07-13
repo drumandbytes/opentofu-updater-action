@@ -166,10 +166,11 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       run: |
         if [ -f ".update-report.txt" ]; then
+          delimiter="$(openssl rand -hex 8)"
           {
-            echo 'report<<EOF'
+            echo "report<<${delimiter}"
             cat .update-report.txt
-            echo EOF
+            echo "${delimiter}"
           } >> "$GITHUB_OUTPUT"
         else
           echo "report=(No updates found.)" >> "$GITHUB_OUTPUT"
