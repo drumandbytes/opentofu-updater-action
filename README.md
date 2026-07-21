@@ -46,7 +46,7 @@ See [`examples/basic.yml`](examples/basic.yml) and [`examples/advanced.yml`](exa
 | Output | Description |
 |---|---|
 | `changes` | `true` if any updates were found |
-| `report` | Markdown report of all changes |
+| `report` | Plain text report of all changes |
 
 ## Version constraint behaviour
 

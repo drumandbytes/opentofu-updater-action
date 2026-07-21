@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+- Use Python to write multiline `GITHUB_OUTPUT` instead of bash heredoc — shell heredoc parsing is fragile regardless of delimiter choice; Python file writes are not subject to these issues
+- Report now uses plain text instead of Markdown — the report is sent inside `<pre>` tags in HTML notification mode, so Markdown syntax (`###`, backticks) rendered as literal characters rather than formatting
+
 ### Added
 - Initial release: automatic updates for OpenTofu/Terraform providers, Helm charts, modules, and container images
 - `~>` pessimistic constraint handling with major-bump safety flag
