@@ -585,33 +585,33 @@ async def main() -> None:
     lines: list[str] = []
 
     if provider_updates:
-        lines.append("### Provider updates")
+        lines.append("Provider updates:")
         for u in provider_updates:
-            lines.append(f"- `{u.name}` (`{u.source}`): `{u.version}` → `{u.new_version}`")
+            lines.append(f"- {u.name} ({u.source}): {u.version} → {u.new_version}")
         lines.append("")
-        lines.append("> Run `tofu init -upgrade` after merging to regenerate the lock file.")
+        lines.append("Note: run 'tofu init -upgrade' after merging to regenerate the lock file.")
         lines.append("")
 
     if chart_updates:
-        lines.append("### Helm chart updates")
+        lines.append("Helm chart updates:")
         for u in chart_updates:
-            lines.append(f"- `{u.chart}` (`{u.name}`): `{u.version}` → `{u.latest}`")
+            lines.append(f"- {u.chart} ({u.name}): {u.version} → {u.latest}")
         lines.append("")
 
     if module_updates:
-        lines.append("### Module updates")
+        lines.append("Module updates:")
         for u in module_updates:
-            lines.append(f"- `{u.name}` (`{u.source}`): `{u.version}` → `{u.latest}`")
+            lines.append(f"- {u.name} ({u.source}): {u.version} → {u.latest}")
         lines.append("")
 
     if image_updates:
-        lines.append("### Container image updates")
+        lines.append("Container image updates:")
         for u in image_updates:
-            lines.append(f"- `{u.original}` → `{u.updated}`")
+            lines.append(f"- {u.original} → {u.updated}")
         lines.append("")
 
     if manual_items:
-        lines.append("### Major bumps — manual review required")
+        lines.append("Major bumps — manual review required:")
         lines.extend(manual_items)
         lines.append("")
 
