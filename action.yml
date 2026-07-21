@@ -162,19 +162,23 @@ runs:
 
     - name: Capture update report
       id: report
-      shell: bash
+      shell: python3 {0}
       working-directory: ${{ inputs.working-directory }}
       run: |
-        if [ -f ".update-report.txt" ]; then
-          delimiter="$(openssl rand -hex 8)"
-          {
-            echo "report<<${delimiter}"
-            cat .update-report.txt
-            echo "${delimiter}"
-          } >> "$GITHUB_OUTPUT"
-        else
-          echo "report=(No updates found.)" >> "$GITHUB_OUTPUT"
-        fi
+        import os, secrets
+
+        report_path = ".update-report.txt"
+        github_output = os.environ["GITHUB_OUTPUT"]
+
+        if os.path.exists(report_path):
+            with open(report_path) as f:
+                content = f.read()
+            delimiter = secrets.token_hex(16)
+            with open(github_output, "a") as out:
+                out.write(f"report<<{delimiter}\n{content}\n{delimiter}\n")
+        else:
+            with open(github_output, "a") as out:
+                out.write("report=(No updates found.)\n")
 
     - name: Clean up temporary files
       shell: bash
