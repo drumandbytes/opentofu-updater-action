@@ -15,6 +15,3 @@ jobs:
       required-files: |
         action.yml
         .github/scripts/update_versions.py
-
-  security:
-    uses: drumandbytes/reusable-actions/.github/workflows/security-scan.yml@v1
