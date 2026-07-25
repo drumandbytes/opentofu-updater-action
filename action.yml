@@ -188,7 +188,7 @@ runs:
     - name: Create pull request
       id: create-pr
       if: inputs.create-pr == 'true' && inputs.dry-run == 'false' && steps.check-changes.outputs.changes == 'true'
-      uses: peter-evans/create-pull-request@v8
+      uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
       with:
         token: ${{ inputs.github-token }}
         commit-message: ${{ inputs.commit-message }}
