@@ -144,10 +144,6 @@ class ImageRef:
     latest_tag: str | None = None
 
     @property
-    def full(self) -> str:
-        return self.original
-
-    @property
     def updated(self) -> str:
         prefix = "/".join(p for p in [self.namespace, self.name] if p)
         registry_prefix = {
