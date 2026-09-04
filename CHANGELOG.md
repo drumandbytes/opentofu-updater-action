@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/drumandbytes/opentofu-updater-action/compare/v1.0.1...v1.0.2) (2026-09-04)
+
+
+### Bug Fixes
+
+* **ci:** use v5 bare output names for the tag-move step ([#7](https://github.com/drumandbytes/opentofu-updater-action/issues/7)) ([a270b35](https://github.com/drumandbytes/opentofu-updater-action/commit/a270b35c1e422077f0e5e684461749c9115cd9cd))
+
 ## [1.0.1](https://github.com/drumandbytes/opentofu-updater-action/compare/v1.0.0...v1.0.1) (2026-09-04)
 
 
