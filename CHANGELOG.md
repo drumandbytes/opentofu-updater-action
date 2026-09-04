@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.0.0] - 2026-07-21
 
 ### Fixed
 - Use Python to write multiline `GITHUB_OUTPUT` instead of bash heredoc — shell heredoc parsing is fragile regardless of delimiter choice; Python file writes are not subject to these issues
