@@ -43,7 +43,7 @@ Thank you for your interest in contributing! This document provides guidelines a
 │   │   └── update_versions.py       # Core version update logic
 │   └── workflows/
 │       ├── ci.yml                   # CI pipeline
-│       └── release.yml              # Release automation
+│       └── release-please.yml     # Release automation (release-please)
 ├── tests/                           # Unit tests
 │   ├── conftest.py
 │   ├── test_parsers.py              # HCL parsing tests
@@ -102,24 +102,28 @@ ruff format .github/scripts/
 6. Push to your fork: `git push origin feature/my-feature`
 7. Open a Pull Request
 
-### Commit Message Format
+### Commits and releases
 
-Use conventional commit format:
+Releases are automated with [release-please](https://github.com/googleapis/release-please).
+It reads the commit history on `main`, keeps a rolling **release PR** with the next
+version + changelog, and cuts the release (tag, GitHub Release, `CHANGELOG.md`) when
+that PR is merged. The floating `v1` / `v1.N` tags are moved automatically.
 
-- `feat:` — New features
-- `fix:` — Bug fixes
-- `docs:` — Documentation changes
-- `refactor:` — Code refactoring
-- `test:` — Adding or updating tests
-- `chore:` — Maintenance tasks
-- `perf:` — Performance improvements
+For this to work, **squash-merge every PR** with a
+[Conventional Commits](https://www.conventionalcommits.org/) title:
 
-Examples:
-```
-feat: add support for Azure Container Registry images
-fix: handle timeout errors when fetching Helm index.yaml
-docs: update README with module version examples
-```
+| Prefix | Effect | Example |
+| --- | --- | --- |
+| `feat:` | minor bump | `feat: add support for Azure Container Registry images` |
+| `fix:` / `perf:` | patch bump | `fix: handle timeouts when fetching a Helm index.yaml` |
+| `feat!:` or `BREAKING CHANGE:` in body | major bump | `feat!: drop Terraform <1.5` |
+| `chore:` `docs:` `ci:` `test:` `refactor:` `build:` | no release | `docs: update the README` |
+
+Dependabot is configured to prefix its PRs with `fix(deps):`, so dependency bumps
+become patch releases on their own.
+
+The old `release:major` / `release:minor` / `release:patch` labels are gone.
+Don't hand-edit `CHANGELOG.md`, `version.txt`, or tags — release-please owns them.
 
 ### Pull Request Guidelines
 
