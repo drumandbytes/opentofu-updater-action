@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/drumandbytes/opentofu-updater-action/compare/v1.0.2...v1.0.3) (2026-09-06)
+
+
+### Bug Fixes
+
+* **ci:** opt into app-token merge, so releases actually finish ([#13](https://github.com/drumandbytes/opentofu-updater-action/issues/13)) ([4db57b9](https://github.com/drumandbytes/opentofu-updater-action/commit/4db57b9d85eb1381f7f95d49b53f554c221d7a20))
+
 ## [1.0.2](https://github.com/drumandbytes/opentofu-updater-action/compare/v1.0.1...v1.0.2) (2026-09-04)
 
 
