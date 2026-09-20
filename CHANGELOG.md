@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.4](https://github.com/drumandbytes/opentofu-updater-action/compare/v1.0.3...v1.0.4) (2026-09-20)
+
+
+### Bug Fixes
+
+* drop paths-ignore from the workflow hosting the required-check gate ([#18](https://github.com/drumandbytes/opentofu-updater-action/issues/18)) ([48f0355](https://github.com/drumandbytes/opentofu-updater-action/commit/48f035571601a226c70c87cccb0739163cb2680e))
+
 ## [1.0.3](https://github.com/drumandbytes/opentofu-updater-action/compare/v1.0.2...v1.0.3) (2026-09-06)
 
 
