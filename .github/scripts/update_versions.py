@@ -314,12 +314,26 @@ async def fetch_latest_provider(session: aiohttp.ClientSession, source: str) -> 
         return None
 
 
-async def fetch_latest_chart(session: aiohttp.ClientSession, repo: str, chart: str) -> str | None:
-    url = f"{repo.rstrip('/')}/index.yaml"
+async def _fetch_chart_index(session: aiohttp.ClientSession, repo: str) -> dict:
+    async with session.get(f"{repo}/index.yaml", timeout=TIMEOUT) as r:
+        return yaml.safe_load(await r.text()).get("entries", {})
+
+
+async def fetch_latest_chart(
+    session: aiohttp.ClientSession,
+    repo: str,
+    chart: str,
+    index_tasks: dict[str, asyncio.Task[dict]] | None = None,
+) -> str | None:
+    normalized_repo = repo.rstrip("/")
+    if index_tasks is None:
+        index_tasks = {}
+    if normalized_repo not in index_tasks:
+        index_tasks[normalized_repo] = asyncio.create_task(
+            _fetch_chart_index(session, normalized_repo)
+        )
     try:
-        async with session.get(url, timeout=TIMEOUT) as r:
-            text = await r.text()
-        entries = yaml.safe_load(text).get("entries", {}).get(chart, [])
+        entries = (await index_tasks[normalized_repo]).get(chart, [])
         stable = [str(e["version"]) for e in entries if is_stable(str(e["version"]))]
         return str(max(stable, key=norm)) if stable else None
     except Exception as e:
@@ -495,9 +509,15 @@ async def main() -> None:
         images = parse_images(tf_files)
 
     async with aiohttp.ClientSession() as session:
+        chart_index_tasks: dict[str, asyncio.Task[dict]] = {}
         results = await asyncio.gather(
             asyncio.gather(*(fetch_latest_provider(session, p.source) for p in providers)),
-            asyncio.gather(*(fetch_latest_chart(session, r.repository, r.chart) for r in releases)),
+            asyncio.gather(
+                *(
+                    fetch_latest_chart(session, r.repository, r.chart, chart_index_tasks)
+                    for r in releases
+                )
+            ),
             asyncio.gather(*(fetch_latest_module(session, m.source, m.registry) for m in modules)),
             asyncio.gather(*(fetch_latest_image(session, img) for img in images)),
         )

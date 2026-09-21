@@ -1,5 +1,6 @@
 """Tests for async network fetchers using mocked HTTP responses."""
 
+import asyncio
 import re
 from pathlib import Path
 
@@ -162,6 +163,44 @@ async def test_fetch_latest_chart_strips_trailing_slash():
         async with aiohttp.ClientSession() as session:
             result = await fetch_latest_chart(session, repo, "cilium")
     assert result == "1.18.0"
+
+
+@pytest.mark.asyncio
+async def test_fetch_latest_chart_concurrent_charts_share_index_request():
+    repo = "https://charts.example.com"
+    body = yaml.dump(
+        {
+            "entries": {
+                "first": [{"version": "1.2.0"}],
+                "second": [{"version": "2.3.0"}],
+            }
+        }
+    )
+    index_tasks = {}
+    with aioresponses() as m:
+        m.get(f"{repo}/index.yaml", body=body)
+        async with aiohttp.ClientSession() as session:
+            results = await asyncio.gather(
+                fetch_latest_chart(session, repo, "first", index_tasks),
+                fetch_latest_chart(session, f"{repo}/", "second", index_tasks),
+            )
+    assert results == ["1.2.0", "2.3.0"]
+    assert sum(len(requests) for requests in m.requests.values()) == 1
+
+
+@pytest.mark.asyncio
+async def test_fetch_latest_chart_concurrent_failure_is_cached():
+    repo = "https://charts.example.com"
+    index_tasks = {}
+    with aioresponses() as m:
+        m.get(f"{repo}/index.yaml", status=503)
+        async with aiohttp.ClientSession() as session:
+            results = await asyncio.gather(
+                fetch_latest_chart(session, repo, "first", index_tasks),
+                fetch_latest_chart(session, f"{repo}/", "second", index_tasks),
+            )
+    assert results == [None, None]
+    assert sum(len(requests) for requests in m.requests.values()) == 1
 
 
 # ── Module fetcher ────────────────────────────────────────────────────────────
