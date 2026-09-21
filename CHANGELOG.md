@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.5](https://github.com/drumandbytes/opentofu-updater-action/compare/v1.0.4...v1.0.5) (2026-09-21)
+
+
+### Performance Improvements
+
+* **updater:** cache Helm index requests by repo URL ([#21](https://github.com/drumandbytes/opentofu-updater-action/issues/21)) ([c7beadb](https://github.com/drumandbytes/opentofu-updater-action/commit/c7beadb7c870f22f46cabd23553ebf9ba64a3cda))
+
 ## [1.0.4](https://github.com/drumandbytes/opentofu-updater-action/compare/v1.0.3...v1.0.4) (2026-09-20)
 
 
