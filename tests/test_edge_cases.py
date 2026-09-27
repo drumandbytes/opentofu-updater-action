@@ -54,9 +54,8 @@ class TestIsVersionTag:
         assert is_version_tag("snapshot") is False
 
     def test_version_with_rc(self):
-        # "1.0.0-rc1" contains digits so passes is_version_tag but is_stable filters it
+        # has digits, so a "version tag"; is_stable is what rejects it
         result = is_version_tag("1.0.0-rc1")
-        # It has digits so is a "version tag", but is_stable will reject it
         assert isinstance(result, bool)
 
 
