@@ -75,3 +75,7 @@ Major version bumps are never applied automatically — they appear in the PR bo
 ## Related
 
 - [argocd-gitops-updater-action](https://github.com/drumandbytes/argocd-gitops-updater-action) — auto-updates container image tags in ArgoCD GitOps repos
+
+## How it was made
+
+Built with the help of an AI coding assistant (Claude). I review and test what gets published.
