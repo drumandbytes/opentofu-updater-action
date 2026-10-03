@@ -4,7 +4,7 @@
 [![CI](https://github.com/drumandbytes/opentofu-updater-action/actions/workflows/ci.yml/badge.svg)](https://github.com/drumandbytes/opentofu-updater-action/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-[More Drumandbytes projects](https://drumandbytes.com/projects/)
+[More Drumandbytes projects](https://drumandbytes.com/projects/?ref=opentofu-updater-action-readme)
 
 A GitHub Action that keeps your OpenTofu/Terraform code up to date by automatically opening PRs when new versions are available for:
 
