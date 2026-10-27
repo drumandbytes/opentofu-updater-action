@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.6](https://github.com/drumandbytes/opentofu-updater-action/compare/v1.0.5...v1.0.6) (2026-10-27)
+
+
+### Bug Fixes
+
+* retry registry lookups, 60s timeout, report lookup failures ([#29](https://github.com/drumandbytes/opentofu-updater-action/issues/29)) ([278c728](https://github.com/drumandbytes/opentofu-updater-action/commit/278c728f776c7728cdabf317fdf9876e16618491))
+
 ## [1.0.5](https://github.com/drumandbytes/opentofu-updater-action/compare/v1.0.4...v1.0.5) (2026-09-21)
 
 
