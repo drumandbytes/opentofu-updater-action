@@ -6,6 +6,7 @@ from pathlib import Path
 
 import aiohttp
 import pytest
+import update_versions as uv
 import yaml
 from aioresponses import aioresponses
 
@@ -193,14 +194,15 @@ async def test_fetch_latest_chart_concurrent_failure_is_cached():
     repo = "https://charts.example.com"
     index_tasks = {}
     with aioresponses() as m:
-        m.get(f"{repo}/index.yaml", status=503)
+        m.get(f"{repo}/index.yaml", status=503, repeat=True)
         async with aiohttp.ClientSession() as session:
             results = await asyncio.gather(
                 fetch_latest_chart(session, repo, "first", index_tasks),
                 fetch_latest_chart(session, f"{repo}/", "second", index_tasks),
             )
     assert results == [None, None]
-    assert sum(len(requests) for requests in m.requests.values()) == 1
+    # one shared index fetch, retried RETRIES times
+    assert sum(len(requests) for requests in m.requests.values()) == uv.RETRIES
 
 
 # ── Module fetcher ────────────────────────────────────────────────────────────
@@ -282,7 +284,9 @@ async def test_list_tags_oci_single_page():
             payload={"tags": ["2026.6.1", "2026.7.0"]},
         )
         async with aiohttp.ClientSession() as session:
-            tags = await _list_tags_oci(session, "registry-1.docker.io", "cloudflare/cloudflared", "token123")
+            tags = await _list_tags_oci(
+                session, "registry-1.docker.io", "cloudflare/cloudflared", "token123"
+            )
     assert set(tags) == {"2026.6.1", "2026.7.0"}
 
 
@@ -300,20 +304,49 @@ async def test_list_tags_oci_pagination():
             payload={"tags": ["2026.7.0"]},
         )
         async with aiohttp.ClientSession() as session:
-            tags = await _list_tags_oci(session, "registry-1.docker.io", "cloudflare/cloudflared", "token123")
+            tags = await _list_tags_oci(
+                session, "registry-1.docker.io", "cloudflare/cloudflared", "token123"
+            )
     assert set(tags) == {"2026.6.1", "2026.7.0"}
 
 
 @pytest.mark.asyncio
-async def test_list_tags_oci_non_200_returns_empty():
+async def test_list_tags_oci_non_200_raises():
     with aioresponses() as m:
         m.get(
             "https://registry-1.docker.io/v2/cloudflare/cloudflared/tags/list",
             status=401,
         )
         async with aiohttp.ClientSession() as session:
-            tags = await _list_tags_oci(session, "registry-1.docker.io", "cloudflare/cloudflared", "")
-    assert tags == []
+            with pytest.raises(aiohttp.ClientResponseError):
+                await _list_tags_oci(session, "registry-1.docker.io", "cloudflare/cloudflared", "")
+    # 401 is not transient: no retries
+    assert sum(len(r) for r in m.requests.values()) == 1
+
+
+@pytest.mark.asyncio
+async def test_list_tags_oci_retries_timeout_then_succeeds():
+    url = "https://registry-1.docker.io/v2/cloudflare/cloudflared/tags/list"
+    with aioresponses() as m:
+        m.get(url, exception=asyncio.TimeoutError())
+        m.get(url, payload={"tags": ["2026.10.4"]})
+        async with aiohttp.ClientSession() as session:
+            tags = await _list_tags_oci(
+                session, "registry-1.docker.io", "cloudflare/cloudflared", ""
+            )
+    assert tags == ["2026.10.4"]
+
+
+@pytest.mark.asyncio
+async def test_image_lookup_failure_is_recorded():
+    uv.FAILURES.clear()
+    ref = _dockerhub_ref("2026.10.1")
+    with aioresponses() as m:
+        m.get(_TOKEN_URL, exception=asyncio.TimeoutError(), repeat=True)
+        async with aiohttp.ClientSession() as session:
+            assert await fetch_latest_image(session, ref) is None
+    assert len(uv.FAILURES) == 1 and "TimeoutError" in uv.FAILURES[0]
+    uv.FAILURES.clear()
 
 
 # ── Image fetcher ─────────────────────────────────────────────────────────────
