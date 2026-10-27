@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import functools
 import os
 import re
 import sys
@@ -30,7 +31,40 @@ DOCKERHUB_USERNAME = os.environ.get("DOCKERHUB_USERNAME", "")
 DOCKERHUB_TOKEN = os.environ.get("DOCKERHUB_TOKEN", "")
 GHCR_TOKEN = os.environ.get("GHCR_TOKEN", "")
 
-TIMEOUT = aiohttp.ClientTimeout(total=20)
+TIMEOUT = aiohttp.ClientTimeout(total=60)
+RETRIES = 3
+
+# Lookups that failed after all retries; surfaced in the report so a flaky registry can't pass as "up to date"
+FAILURES: list[str] = []
+
+
+def _warn(kind: str, what: str, e: Exception) -> None:
+    msg = f"{kind} {what}: {type(e).__name__}: {e}".rstrip(": ")
+    print(f"  warn: {msg}", file=sys.stderr)
+    FAILURES.append(msg)
+
+
+def _transient(e: Exception) -> bool:
+    if isinstance(e, aiohttp.ClientResponseError):
+        return e.status >= 500 or e.status == 429
+    return isinstance(e, (TimeoutError, aiohttp.ClientError))
+
+
+def retried(fn):
+    """Retry transient network failures with backoff; the last error propagates."""
+
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        for attempt in range(RETRIES):
+            try:
+                return await fn(*args, **kwargs)
+            except Exception as e:
+                if attempt == RETRIES - 1 or not _transient(e):
+                    raise
+                await asyncio.sleep(2**attempt)
+
+    return wrapper
+
 
 # Tags that look like versions but are not pinnable releases
 _UNSTABLE_TAG_RE = re.compile(
@@ -302,20 +336,28 @@ def parse_images(tf_files: list[Path]) -> list[ImageRef]:
 # ── Registry fetchers ─────────────────────────────────────────────────────────
 
 
+@retried
+async def _get_json(session: aiohttp.ClientSession, url: str) -> dict:
+    async with session.get(url, timeout=TIMEOUT) as r:
+        r.raise_for_status()
+        return await r.json(content_type=None)
+
+
 async def fetch_latest_provider(session: aiohttp.ClientSession, source: str) -> str | None:
     url = f"https://registry.opentofu.org/v1/providers/{source}/versions"
     try:
-        async with session.get(url, timeout=TIMEOUT) as r:
-            data = await r.json(content_type=None)
+        data = await _get_json(session, url)
         versions = [v["version"] for v in data.get("versions", []) if is_stable(v["version"])]
         return str(max(versions, key=norm)) if versions else None
     except Exception as e:
-        print(f"  warn: provider {source}: {e}", file=sys.stderr)
+        _warn("provider", source, e)
         return None
 
 
+@retried
 async def _fetch_chart_index(session: aiohttp.ClientSession, repo: str) -> dict:
     async with session.get(f"{repo}/index.yaml", timeout=TIMEOUT) as r:
+        r.raise_for_status()
         return yaml.safe_load(await r.text()).get("entries", {})
 
 
@@ -337,7 +379,7 @@ async def fetch_latest_chart(
         stable = [str(e["version"]) for e in entries if is_stable(str(e["version"]))]
         return str(max(stable, key=norm)) if stable else None
     except Exception as e:
-        print(f"  warn: chart {chart} @ {repo}: {e}", file=sys.stderr)
+        _warn("chart", f"{chart} @ {repo}", e)
         return None
 
 
@@ -351,8 +393,7 @@ async def fetch_latest_module(
     )
     url = f"{base}/v1/modules/{source}/versions"
     try:
-        async with session.get(url, timeout=TIMEOUT) as r:
-            data = await r.json(content_type=None)
+        data = await _get_json(session, url)
         versions = [
             v["version"]
             for mod in data.get("modules", [])
@@ -361,10 +402,11 @@ async def fetch_latest_module(
         ]
         return str(max(versions, key=norm)) if versions else None
     except Exception as e:
-        print(f"  warn: module {source}: {e}", file=sys.stderr)
+        _warn("module", source, e)
         return None
 
 
+@retried
 async def _dockerhub_token(session: aiohttp.ClientSession, namespace: str, name: str) -> str:
     repo = f"{namespace}/{name}"
     url = f"https://auth.docker.io/token?service=registry.docker.io&scope=repository:{repo}:pull"
@@ -376,6 +418,7 @@ async def _dockerhub_token(session: aiohttp.ClientSession, namespace: str, name:
         return (await r.json(content_type=None)).get("token", "")
 
 
+@retried
 async def _ghcr_token(session: aiohttp.ClientSession, namespace: str, name: str) -> str:
     if not GHCR_TOKEN:
         return ""
@@ -386,6 +429,7 @@ async def _ghcr_token(session: aiohttp.ClientSession, namespace: str, name: str)
         return (await r.json(content_type=None)).get("token", "")
 
 
+@retried
 async def _list_tags_oci(
     session: aiohttp.ClientSession, registry_host: str, repo: str, token: str
 ) -> list[str]:
@@ -394,8 +438,7 @@ async def _list_tags_oci(
     tags: list[str] = []
     while url:
         async with session.get(url, headers=headers, timeout=TIMEOUT) as r:
-            if r.status != 200:
-                break
+            r.raise_for_status()
             data = await r.json(content_type=None)
             tags.extend(data.get("tags") or [])
             link = r.headers.get("Link", "")
@@ -435,7 +478,7 @@ async def fetch_latest_image(session: aiohttp.ClientSession, ref: ImageRef) -> s
 
         return best if norm(best) > norm(ref.tag) else None
     except Exception as e:
-        print(f"  warn: image {ref.original}: {e}", file=sys.stderr)
+        _warn("image", ref.original, e)
         return None
 
 
@@ -629,6 +672,11 @@ async def main() -> None:
     if manual_items:
         lines.append("Major bumps — manual review required:")
         lines.extend(manual_items)
+        lines.append("")
+
+    if FAILURES:
+        lines.append("Lookup failures (these were not checked):")
+        lines.extend(f"- {f}" for f in FAILURES)
         lines.append("")
 
     if not lines:
