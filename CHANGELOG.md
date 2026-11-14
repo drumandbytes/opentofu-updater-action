@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.7](https://github.com/drumandbytes/opentofu-updater-action/compare/v1.0.6...v1.0.7) (2026-11-14)
+
+
+### Bug Fixes
+
+* **deps:** bump peter-evans/create-pull-request ([#31](https://github.com/drumandbytes/opentofu-updater-action/issues/31)) ([7b50983](https://github.com/drumandbytes/opentofu-updater-action/commit/7b50983142a97ca368feb58b7b4b4f45fbdc4854))
+
 ## [1.0.6](https://github.com/drumandbytes/opentofu-updater-action/compare/v1.0.5...v1.0.6) (2026-10-27)
 
 
